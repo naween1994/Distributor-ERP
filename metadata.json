@@ -1,0 +1,7 @@
+{
+  "name": "Saffron & Bark - Spice Inventory & Sales ERP",
+  "description": "Full-scale inventory, customer tier pricing, sales orders, invoice PDF generation, automated payment reminders, and accounting sync for artisanal and bulk spice merchants.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
