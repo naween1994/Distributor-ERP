@@ -9,7 +9,8 @@ import {
   UserRole, 
   PaymentStatus,
   PricingTier,
-  PaymentTerm
+  PaymentTerm,
+  RolePermissions
 } from './types';
 import { StorageService } from './services/storage';
 import { ROLE_PERMISSIONS, INITIAL_USERS } from './data/initialData';
@@ -32,6 +33,7 @@ import { PaymentReminderModal } from './components/PaymentReminderModal';
 import { BarcodeScannerModal, ScannerMode } from './components/BarcodeScannerModal';
 import { EmailAlertModal } from './components/EmailAlertModal';
 import { MongoDBSyncModal } from './components/MongoDBSyncModal';
+import { ApiService, ServerHealth } from './services/apiService';
 import { 
   Scan, 
   CheckCircle2, 
@@ -85,7 +87,36 @@ export default function App() {
   // Real-time Toast Banner
   const [toastMessage, setToastMessage] = useState<{ title: string; text: string; type: 'success' | 'warning' | 'info' } | null>(null);
 
-  const permissions = ROLE_PERMISSIONS[activeUser.role] || ROLE_PERMISSIONS.admin;
+  // MongoDB & Server Connection Status
+  const [serverHealth, setServerHealth] = useState<ServerHealth | null>(null);
+
+  const permissions: RolePermissions = {
+    ...(ROLE_PERMISSIONS[activeUser.role] || ROLE_PERMISSIONS.admin),
+    ...(activeUser.customPermissions || {}),
+  };
+
+  // Initial backend health check & MongoDB connection status
+  useEffect(() => {
+    ApiService.getHealth().then(async (health) => {
+      if (health) {
+        setServerHealth(health);
+        if (health.isMongoConnected) {
+          try {
+            const [pRes, cRes, oRes] = await Promise.all([
+              fetch('/api/products').then((r) => (r.ok ? r.json() : null)),
+              fetch('/api/customers').then((r) => (r.ok ? r.json() : null)),
+              fetch('/api/orders').then((r) => (r.ok ? r.json() : null)),
+            ]);
+            if (Array.isArray(pRes) && pRes.length > 0) setProducts(pRes);
+            if (Array.isArray(cRes) && cRes.length > 0) setCustomers(cRes);
+            if (Array.isArray(oRes) && oRes.length > 0) setOrders(oRes);
+          } catch (e) {
+            console.warn('Could not load initial records from MongoDB:', e);
+          }
+        }
+      }
+    });
+  }, []);
 
   // Auto-sync state to localStorage
   useEffect(() => {
@@ -156,13 +187,16 @@ export default function App() {
     const updatedOrders = [newOrder, ...orders];
     setOrders(updatedOrders);
 
+    // Automatically sync new order to backend Express and MongoDB Atlas
+    ApiService.createOrder(newOrder);
+
     // 3. Real-Time Notification: New Order Created
     const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
     const newOrderNotif: NotificationItem = {
       id: `notif-${Date.now()}-ord`,
       type: 'new_order',
       title: `New Order Created: ${newOrder.invoiceNumber}`,
-      message: `${newOrder.customerName} placed order for $${newOrder.totalAmount.toFixed(2)} (${newOrder.items.length} spice lots). Status: ${newOrder.paymentStatus}.`,
+      message: `${newOrder.customerName} placed order for Rs. ${newOrder.totalAmount.toFixed(2)} (${newOrder.items.length} spice lots). Status: ${newOrder.paymentStatus}.`,
       orderId: newOrder.id,
       invoiceNumber: newOrder.invoiceNumber,
       customerId: newOrder.customerId,
@@ -201,14 +235,16 @@ export default function App() {
     );
   };
 
-  // 2. Product Management
+  // 2. Product Management (Automatically synchronized to MongoDB)
   const handleAddProduct = (newProd: Product) => {
     setProducts([newProd, ...products]);
+    ApiService.createProduct(newProd);
     showToast('Product Added', `Spice lot ${newProd.name} (${newProd.sku}) catalogued.`, 'success');
   };
 
   const handleUpdateProduct = (updated: Product) => {
     setProducts(products.map((p) => (p.id === updated.id ? updated : p)));
+    ApiService.updateProduct(updated);
     showToast('Product Updated', `${updated.name} details saved.`, 'info');
   };
 
@@ -225,6 +261,7 @@ export default function App() {
     });
 
     setProducts(updatedProducts);
+    ApiService.adjustStock(productId, delta, note);
 
     const targetProduct = products.find((p) => p.id === productId);
     const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -254,18 +291,20 @@ export default function App() {
     );
   };
 
-  // 3. Customer Management
+  // 3. Customer Management (Automatically synchronized to MongoDB)
   const handleAddCustomer = (newCust: Customer) => {
     setCustomers([newCust, ...customers]);
+    ApiService.createCustomer(newCust);
     showToast('Customer Created', `${newCust.name} added to trade accounts.`, 'success');
   };
 
   const handleUpdateCustomer = (updated: Customer) => {
     setCustomers(customers.map((c) => (c.id === updated.id ? updated : c)));
+    ApiService.updateCustomer(updated);
     showToast('Customer Saved', `Account details for ${updated.name} updated.`, 'info');
   };
 
-  // 4. Payment Status Update
+  // 4. Payment Status Update (Automatically synchronized to MongoDB)
   const handleUpdatePaymentStatus = (orderId: string, status: PaymentStatus, paidAmount: number) => {
     const updatedOrders = orders.map((o) => {
       if (o.id === orderId) {
@@ -278,6 +317,7 @@ export default function App() {
       return o;
     });
     setOrders(updatedOrders);
+    ApiService.updatePaymentStatus(orderId, status, paidAmount);
 
     if (selectedInvoiceOrder && selectedInvoiceOrder.id === orderId) {
       setSelectedInvoiceOrder({
@@ -421,22 +461,25 @@ export default function App() {
     showToast('Trade Matrix Restored', 'Reverted pricing tiers and payment terms to Sri Lankan spice industry defaults.', 'info');
   };
 
-  // Record Deletion Handlers (Admin Protected)
+  // Record Deletion Handlers (Admin Protected - Synced to MongoDB)
   const handleDeleteProduct = (productId: string) => {
     const updated = products.filter((p) => p.id !== productId);
     setProducts(updated);
+    ApiService.deleteProduct(productId);
     showToast('Product Removed', 'Spice record deleted with admin password authorization.', 'warning');
   };
 
   const handleDeleteCustomer = (customerId: string) => {
     const updated = customers.filter((c) => c.id !== customerId);
     setCustomers(updated);
+    ApiService.deleteCustomer(customerId);
     showToast('Customer Removed', 'Customer record deleted with admin password authorization.', 'warning');
   };
 
   const handleDeleteOrder = (orderId: string) => {
     const updated = orders.filter((o) => o.id !== orderId);
     setOrders(updated);
+    ApiService.deleteOrder(orderId);
     showToast('Invoice Removed', 'Commercial invoice record deleted with admin password authorization.', 'warning');
   };
 
@@ -444,19 +487,22 @@ export default function App() {
     setCustomers([]);
     setOrders([]);
     StorageService.wipeCustomersAndOrders();
+    ApiService.wipeCustomersAndOrders(adminDeletePassword);
     showToast('Records Cleared', 'All orders and customers have been removed. Ready to add from scratch.', 'success');
   };
 
   const handleUpdateAdminDeletePassword = (newPass: string) => {
     setAdminDeletePassword(newPass);
     StorageService.saveAdminDeletePassword(newPass);
+    ApiService.updateAdminDeletePassword(newPass);
     showToast('Deletion Password Updated', 'Admin Master Record Deletion Password updated successfully.', 'success');
   };
 
-  // User Management Handlers
+  // User Management Handlers (Synced to MongoDB)
   const handleAddUser = (newUser: UserProfile) => {
     const updated = [...users, newUser];
     setUsers(updated);
+    ApiService.createUser(newUser);
     showToast('User Created', `Account created for ${newUser.name} (${newUser.role}).`, 'success');
   };
 
@@ -466,6 +512,7 @@ export default function App() {
     if (activeUser.id === updatedUser.id) {
       setActiveUser(updatedUser);
     }
+    ApiService.updateUser(updatedUser);
     showToast('User Updated', `Profile updated for ${updatedUser.name}.`, 'info');
   };
 
@@ -476,6 +523,7 @@ export default function App() {
     }
     const updated = users.filter((u) => u.id !== userId);
     setUsers(updated);
+    ApiService.deleteUser(userId);
     showToast('User Deleted', 'User account permanently removed.', 'warning');
   };
 
@@ -603,14 +651,24 @@ export default function App() {
               <span>Scan Barcode / QR Code</span>
             </button>
 
-            <button
-              onClick={() => setIsMongoModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100/80 text-emerald-900 font-semibold rounded-lg border border-emerald-200 transition-colors"
-              title="MERN Stack: MongoDB Atlas Sync & BSON Schema Hub"
-            >
-              <Database className="w-3.5 h-3.5 text-emerald-700" />
-              <span>MongoDB Sync</span>
-            </button>
+            {activeUser.role === 'admin' && (
+              <button
+                onClick={() => setIsMongoModalOpen(true)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg border transition-colors ${
+                  serverHealth?.isMongoConnected
+                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border-emerald-300 shadow-xs'
+                    : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 shadow-xs'
+                }`}
+                title="MongoDB Atlas Auto-Sync & Database Settings"
+              >
+                <Database className={`w-3.5 h-3.5 ${serverHealth?.isMongoConnected ? 'text-emerald-600' : 'text-amber-600'}`} />
+                <span>
+                  {serverHealth?.isMongoConnected
+                    ? `MongoDB Atlas: Auto-Sync Active (${serverHealth.mongoStats?.counts?.products ?? products.length} spices)`
+                    : 'MongoDB: Disconnected (Click to Connect Atlas)'}
+                </span>
+              </button>
+            )}
 
             <button
               onClick={() => setCurrentTab('owner')}
@@ -840,7 +898,12 @@ export default function App() {
       {/* MongoDB Atlas Sync & MERN Architecture Modal */}
       <MongoDBSyncModal
         isOpen={isMongoModalOpen}
-        onClose={() => setIsMongoModalOpen(false)}
+        onClose={() => {
+          setIsMongoModalOpen(false);
+          ApiService.getHealth().then((health) => {
+            if (health) setServerHealth(health);
+          });
+        }}
         products={products}
         customers={customers}
         orders={orders}
@@ -848,10 +911,16 @@ export default function App() {
           if (data.products && data.products.length > 0) setProducts(data.products);
           if (data.customers && data.customers.length > 0) setCustomers(data.customers);
           if (data.orders && data.orders.length > 0) setOrders(data.orders);
+          ApiService.getHealth().then((health) => {
+            if (health) setServerHealth(health);
+          });
           showToast('Database Hydrated', 'Synchronized live records from MongoDB.', 'success');
         }}
         onWipeAndReseedComplete={() => {
           handleResetDemoData();
+          ApiService.getHealth().then((health) => {
+            if (health) setServerHealth(health);
+          });
           showToast('Database Reseeded', 'Deleted obsolete records and reseeded 15 spices and invoices.', 'success');
         }}
       />

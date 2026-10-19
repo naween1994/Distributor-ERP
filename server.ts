@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import { MongoClient, Db } from 'mongodb';
 import { 
@@ -16,8 +17,38 @@ import {
 dotenv.config();
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const MONGODB_URI = process.env.MONGODB_URI || '';
-const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || 'na_distributors_erp';
+const MONGO_CONFIG_PATH = path.join(process.cwd(), '.mongo_connection.json');
+
+function getStoredMongoConfig(): { uri: string; dbName: string } {
+  try {
+    if (fs.existsSync(MONGO_CONFIG_PATH)) {
+      const content = fs.readFileSync(MONGO_CONFIG_PATH, 'utf-8');
+      const parsed = JSON.parse(content);
+      return {
+        uri: parsed.uri || '',
+        dbName: parsed.dbName || process.env.MONGODB_DB_NAME || 'na_distributors_erp',
+      };
+    }
+  } catch (err) {
+    // ignore read error
+  }
+  return {
+    uri: process.env.MONGODB_URI || '',
+    dbName: process.env.MONGODB_DB_NAME || 'na_distributors_erp',
+  };
+}
+
+function saveStoredMongoConfig(uri: string, dbName: string) {
+  try {
+    fs.writeFileSync(MONGO_CONFIG_PATH, JSON.stringify({ uri, dbName }, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Could not persist MongoDB config file:', err);
+  }
+}
+
+const initialMongoConfig = getStoredMongoConfig();
+let currentMongoUri = process.env.MONGODB_URI || initialMongoConfig.uri || '';
+let currentMongoDbName = process.env.MONGODB_DB_NAME || initialMongoConfig.dbName || 'na_distributors_erp';
 
 // In-Memory fallback store when MongoDB URI is not provided or connecting
 interface DataStore {
@@ -58,32 +89,42 @@ let mongoClient: MongoClient | null = null;
 let mongoDb: Db | null = null;
 let isMongoConnected = false;
 
-// Attempt MongoDB Connection if URI is present
-async function initMongoDB(uri = MONGODB_URI) {
+// Helper to sanitize documents before MongoDB upserts to prevent "immutable field '_id'" error
+function sanitizeForMongo<T extends Record<string, any>>(doc: T): Record<string, any> {
+  if (!doc || typeof doc !== 'object') return doc;
+  const clean = { ...doc };
+  delete clean._id;
+  return clean;
+}
+
+// Attempt MongoDB Connection
+async function initMongoDB(uri = currentMongoUri, dbName = currentMongoDbName) {
   if (!uri) {
-    console.log('ℹ️ No MONGODB_URI configured. Running with in-memory persistent store.');
+    console.log('ℹ️ No active MONGODB_URI configured. Running with in-memory persistent store.');
     isMongoConnected = false;
     return false;
   }
 
   try {
-    console.log(`🔌 Attempting connection to MongoDB (${MONGODB_DB_NAME})...`);
+    console.log(`🔌 Attempting connection to MongoDB (${dbName})...`);
     mongoClient = new MongoClient(uri, {
       serverSelectionTimeoutMS: 5000,
     });
     await mongoClient.connect();
-    mongoDb = mongoClient.db(MONGODB_DB_NAME);
+    mongoDb = mongoClient.db(dbName);
     isMongoConnected = true;
-    console.log('✅ Connected successfully to MongoDB Database:', MONGODB_DB_NAME);
+    currentMongoUri = uri;
+    currentMongoDbName = dbName;
+    console.log('✅ Connected successfully to MongoDB Database:', dbName);
 
     // Seed database if empty
     const productCount = await mongoDb.collection('products').countDocuments();
     if (productCount === 0) {
       console.log('🌱 Seeding MongoDB collections with initial spice catalog...');
-      await mongoDb.collection('products').insertMany(INITIAL_PRODUCTS);
-      await mongoDb.collection('customers').insertMany(INITIAL_CUSTOMERS);
-      await mongoDb.collection('orders').insertMany(INITIAL_ORDERS);
-      await mongoDb.collection('sync_records').insertMany(INITIAL_SYNC_RECORDS);
+      await mongoDb.collection('products').insertMany(INITIAL_PRODUCTS.map(sanitizeForMongo));
+      await mongoDb.collection('customers').insertMany(INITIAL_CUSTOMERS.map(sanitizeForMongo));
+      await mongoDb.collection('orders').insertMany(INITIAL_ORDERS.map(sanitizeForMongo));
+      await mongoDb.collection('sync_records').insertMany(INITIAL_SYNC_RECORDS.map(sanitizeForMongo));
       console.log('🌱 MongoDB collections successfully seeded.');
     }
 
@@ -126,10 +167,10 @@ async function startServer() {
     res.json({
       status: 'online',
       server: 'Express (Node.js)',
-      database: isMongoConnected ? 'MongoDB (Connected)' : 'In-Memory Store (Active)',
+      database: isMongoConnected ? 'MongoDB Atlas (Connected)' : 'In-Memory Store (Active)',
       isMongoConnected,
-      isMongoUriConfigured: Boolean(MONGODB_URI),
-      dbName: MONGODB_DB_NAME,
+      isMongoUriConfigured: Boolean(currentMongoUri),
+      dbName: currentMongoDbName,
       mongoStats,
       timestamp: new Date().toISOString(),
     });
@@ -138,8 +179,8 @@ async function startServer() {
   // Test MongoDB Connection
   app.post('/api/mongodb/test-connection', async (req: Request, res: Response) => {
     const { uri, dbName } = req.body;
-    const targetUri = uri || MONGODB_URI;
-    const targetDb = dbName || MONGODB_DB_NAME;
+    const targetUri = uri || currentMongoUri;
+    const targetDb = dbName || currentMongoDbName;
 
     if (!targetUri) {
       return res.status(400).json({
@@ -172,8 +213,8 @@ async function startServer() {
   // Dynamically Connect MongoDB on backend
   app.post('/api/mongodb/connect', async (req: Request, res: Response) => {
     const { uri, dbName } = req.body;
-    const targetUri = uri || MONGODB_URI;
-    const targetDb = dbName || MONGODB_DB_NAME;
+    const targetUri = uri || currentMongoUri;
+    const targetDb = dbName || currentMongoDbName;
 
     if (!targetUri) {
       return res.status(400).json({
@@ -194,11 +235,14 @@ async function startServer() {
       await mongoClient.connect();
       mongoDb = mongoClient.db(targetDb);
       isMongoConnected = true;
+      currentMongoUri = targetUri;
+      currentMongoDbName = targetDb;
+      saveStoredMongoConfig(targetUri, targetDb);
 
       const collections = await mongoDb.listCollections().toArray();
       res.json({
         success: true,
-        message: `Successfully connected Express backend to MongoDB database '${targetDb}'!`,
+        message: `Successfully connected Express backend to MongoDB database '${targetDb}'! Auto-sync is active.`,
         database: targetDb,
         collections: collections.map((c) => c.name),
       });
@@ -386,7 +430,7 @@ async function startServer() {
   // Export Mongoose Schemas & MongoImport Commands
   app.get('/api/mongodb/schema-guide', (req: Request, res: Response) => {
     res.json({
-      database: MONGODB_DB_NAME,
+      database: currentMongoDbName,
       collections: ['products', 'customers', 'orders', 'notifications', 'sync_records'],
       mongooseSchemas: {
         Product: `const ProductSchema = new mongoose.Schema({
@@ -471,7 +515,9 @@ async function startServer() {
 
     if (isMongoConnected && mongoDb) {
       try {
-        await mongoDb.collection('products').insertOne(newProd);
+        const cleanProd = sanitizeForMongo(newProd);
+        await mongoDb.collection('products').updateOne({ id: newProd.id }, { $set: cleanProd }, { upsert: true });
+        console.log(`✅ MongoDB: Product ${newProd.id} saved`);
       } catch (err: any) {
         console.error('MongoDB insert error:', err.message);
       }
@@ -491,7 +537,9 @@ async function startServer() {
 
     if (isMongoConnected && mongoDb) {
       try {
-        await mongoDb.collection('products').updateOne({ id }, { $set: updated });
+        const cleanUpdate = sanitizeForMongo(updated);
+        await mongoDb.collection('products').updateOne({ id }, { $set: cleanUpdate }, { upsert: true });
+        console.log(`✅ MongoDB: Product ${id} updated automatically`);
       } catch (err: any) {
         console.error('MongoDB update error:', err.message);
       }
@@ -516,6 +564,7 @@ async function startServer() {
           { id },
           { $inc: { currentStock: Number(delta) } }
         );
+        console.log(`✅ MongoDB: Product ${id} stock adjusted by ${delta}`);
       } catch (err: any) {
         console.error('MongoDB adjust stock error:', err.message);
       }
@@ -544,13 +593,34 @@ async function startServer() {
 
     if (isMongoConnected && mongoDb) {
       try {
-        await mongoDb.collection('customers').insertOne(newCust);
+        const cleanCust = sanitizeForMongo(newCust);
+        await mongoDb.collection('customers').updateOne({ id: newCust.id }, { $set: cleanCust }, { upsert: true });
+        console.log(`✅ MongoDB: Customer ${newCust.id} saved`);
       } catch (err: any) {
         console.error('MongoDB insert customer error:', err.message);
       }
     }
 
     res.status(201).json(newCust);
+  });
+
+  app.put('/api/customers/:id', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const updated = req.body;
+    const idx = store.customers.findIndex((c) => c.id === id);
+    if (idx !== -1) {
+      store.customers[idx] = { ...store.customers[idx], ...updated };
+    }
+    if (isMongoConnected && mongoDb) {
+      try {
+        const cleanUpdate = sanitizeForMongo(updated);
+        await mongoDb.collection('customers').updateOne({ id }, { $set: cleanUpdate }, { upsert: true });
+        console.log(`✅ MongoDB: Customer ${id} updated automatically`);
+      } catch (err: any) {
+        console.error('MongoDB update customer error:', err.message);
+      }
+    }
+    res.json(updated);
   });
 
   // ORDERS API
@@ -592,13 +662,55 @@ async function startServer() {
 
     if (isMongoConnected && mongoDb) {
       try {
-        await mongoDb.collection('orders').insertOne(newOrder);
+        const cleanOrder = sanitizeForMongo(newOrder);
+        await mongoDb.collection('orders').updateOne({ id: newOrder.id }, { $set: cleanOrder }, { upsert: true });
+        console.log(`✅ MongoDB: Order ${newOrder.id} saved`);
       } catch (err: any) {
         console.error('MongoDB insert order error:', err.message);
       }
     }
 
     res.status(201).json(newOrder);
+  });
+
+  app.put('/api/orders/:id', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const updated = req.body;
+    const idx = store.orders.findIndex((o) => o.id === id);
+    if (idx !== -1) {
+      store.orders[idx] = { ...store.orders[idx], ...updated };
+    }
+    if (isMongoConnected && mongoDb) {
+      try {
+        const cleanUpdate = sanitizeForMongo(updated);
+        await mongoDb.collection('orders').updateOne({ id }, { $set: cleanUpdate }, { upsert: true });
+        console.log(`✅ MongoDB: Order ${id} updated automatically`);
+      } catch (err: any) {
+        console.error('MongoDB update order error:', err.message);
+      }
+    }
+    res.json(updated);
+  });
+
+  app.put('/api/orders/:id/payment', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { paymentStatus, paidAmount } = req.body;
+    const idx = store.orders.findIndex((o) => o.id === id);
+    if (idx !== -1) {
+      store.orders[idx].paymentStatus = paymentStatus;
+      store.orders[idx].paidAmount = paidAmount;
+    }
+    if (isMongoConnected && mongoDb) {
+      try {
+        await mongoDb.collection('orders').updateOne(
+          { id },
+          { $set: { paymentStatus, paidAmount } }
+        );
+      } catch (err: any) {
+        console.error('MongoDB payment status update error:', err.message);
+      }
+    }
+    res.json({ success: true, id, paymentStatus, paidAmount });
   });
 
   // -------------------------------------------------------------
@@ -709,31 +821,73 @@ async function startServer() {
   // -------------------------------------------------------------
   // USER MANAGEMENT & SECURITY PASSWORDS
   // -------------------------------------------------------------
-  app.get('/api/users', (req: Request, res: Response) => {
+  app.get('/api/users', async (req: Request, res: Response) => {
+    if (isMongoConnected && mongoDb) {
+      try {
+        const users = await mongoDb.collection('users').find({}).toArray();
+        if (users.length > 0) return res.json(users);
+      } catch (err: any) {
+        console.error('MongoDB find users error:', err.message);
+      }
+    }
     res.json(store.users);
   });
 
-  app.post('/api/users', (req: Request, res: Response) => {
+  app.post('/api/users', async (req: Request, res: Response) => {
     const newUser = req.body;
     if (!newUser.id) newUser.id = `usr-${Date.now()}`;
     store.users.push(newUser);
+
+    if (isMongoConnected && mongoDb) {
+      try {
+        const cleanUser = sanitizeForMongo(newUser);
+        await mongoDb.collection('users').updateOne({ id: newUser.id }, { $set: cleanUser }, { upsert: true });
+        console.log(`✅ MongoDB: User ${newUser.id} saved`);
+      } catch (err: any) {
+        console.error('MongoDB insert user error:', err.message);
+      }
+    }
+
     res.status(201).json(newUser);
   });
 
-  app.put('/api/users/:id', (req: Request, res: Response) => {
+  app.put('/api/users/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
     const updated = req.body;
     const idx = store.users.findIndex((u) => u.id === id);
     if (idx !== -1) {
       store.users[idx] = { ...store.users[idx], ...updated };
+    }
+
+    if (isMongoConnected && mongoDb) {
+      try {
+        const cleanUser = sanitizeForMongo(updated);
+        await mongoDb.collection('users').updateOne({ id }, { $set: cleanUser }, { upsert: true });
+        console.log(`✅ MongoDB: User ${id} updated automatically`);
+      } catch (err: any) {
+        console.error('MongoDB update user error:', err.message);
+      }
+    }
+
+    if (idx !== -1) {
       return res.json(store.users[idx]);
     }
-    res.status(404).json({ error: 'User not found' });
+    res.json(updated);
   });
 
-  app.delete('/api/users/:id', (req: Request, res: Response) => {
+  app.delete('/api/users/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
     store.users = store.users.filter((u) => u.id !== id);
+
+    if (isMongoConnected && mongoDb) {
+      try {
+        await mongoDb.collection('users').deleteOne({ id });
+        console.log(`✅ MongoDB: User ${id} deleted`);
+      } catch (err: any) {
+        console.error('MongoDB delete user error:', err.message);
+      }
+    }
+
     res.json({ success: true, id });
   });
 
@@ -799,7 +953,7 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 NA Distributors MERN Backend listening on port ${PORT}`);
-    console.log(`📦 MongoDB Database: ${MONGODB_DB_NAME} (Status: ${isMongoConnected ? 'CONNECTED' : 'STANDBY'})`);
+    console.log(`📦 MongoDB Database: ${currentMongoDbName} (Status: ${isMongoConnected ? 'CONNECTED' : 'STANDBY'})`);
   });
 }
 

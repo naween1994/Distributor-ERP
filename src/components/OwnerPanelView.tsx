@@ -1110,7 +1110,7 @@ export const OwnerPanelView: React.FC<OwnerPanelViewProps> = ({
               <div>
                 <h4 className="font-bold text-slate-900 text-sm">System Users & Team Access</h4>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Manage logins, add new operators, and view passwords for Naween, Anura, Mangala, and Anura Gunasekara.
+                  Manage logins, add new operators, and configure credentials for Naween, Anura, Mangala, and Anura Gunasekara.
                 </p>
               </div>
               <button

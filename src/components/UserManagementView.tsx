@@ -18,9 +18,33 @@ import {
   Copy, 
   Check, 
   UserCheck,
-  ShieldAlert
+  ShieldAlert,
+  Sliders,
+  ChevronDown,
+  ChevronUp,
+  RotateCcw
 } from 'lucide-react';
+import { ROLE_PERMISSIONS } from '../data/initialData';
 import { AdminDeleteConfirmModal } from './AdminDeleteConfirmModal';
+
+export const PERMISSION_DEFINITIONS: {
+  key: keyof RolePermissions;
+  label: string;
+  description: string;
+  category: 'Inventory' | 'Sales' | 'Financial' | 'Administration';
+}[] = [
+  { key: 'canEditInventory', label: 'Manage Inventory Stocks', description: 'Add/edit products, stock counts, and reorder thresholds', category: 'Inventory' },
+  { key: 'canViewCostPrices', label: 'View Cost Prices & Margins', description: 'Access product cost prices, lot costs, and gross margins', category: 'Financial' },
+  { key: 'canCreateOrders', label: 'Create & Issue Invoices', description: 'Create commercial invoices and dispatch spice orders', category: 'Sales' },
+  { key: 'canDeleteOrders', label: 'Delete & Cancel Orders', description: 'Void or remove existing customer orders and invoices', category: 'Sales' },
+  { key: 'canManageCustomers', label: 'Manage Customer Accounts', description: 'Register clients, update trade credit limits, and set payment terms', category: 'Sales' },
+  { key: 'canManageAccounting', label: 'Accounting Integrations', description: 'Sync ledger entries to QuickBooks & Xero accounting platforms', category: 'Financial' },
+  { key: 'canExportReports', label: 'Export Reports & Generate PDF', description: 'Download analytics CSVs and generate monthly executive PDF statements', category: 'Financial' },
+  { key: 'canChangePaymentStatus', label: 'Record & Update Payments', description: 'Record cash, cheque, bank transfer payments and mark Paid', category: 'Financial' },
+  { key: 'canManageOwnerSettings', label: 'Pricing Tiers & Dealer Margins', description: 'Configure dealer discounts, wholesale pricing tiers, and terms', category: 'Administration' },
+  { key: 'canManageUsers', label: 'User & Role Management', description: 'Create and edit user accounts and customize role permissions', category: 'Administration' },
+  { key: 'canDeleteRecords', label: 'Master Password Deletion', description: 'Execute destructive catalog, customer, and order deletions', category: 'Administration' },
+];
 
 interface UserManagementViewProps {
   users: UserProfile[];
@@ -57,18 +81,24 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
     name: string;
     email: string;
     role: UserRole;
+    customRoleName: string;
     title: string;
     password: string;
     phone: string;
+    customPermissions: RolePermissions;
   }>({
     name: '',
     email: '',
     role: 'sales_rep',
+    customRoleName: '',
     title: '',
     password: '',
     phone: '',
+    customPermissions: { ...ROLE_PERMISSIONS.sales_rep },
   });
 
+  const [isCustomizePermissionsOpen, setIsCustomizePermissionsOpen] = useState(false);
+  const [isEditCustomizePermissionsOpen, setIsEditCustomizePermissionsOpen] = useState(false);
   const [showFormPassword, setShowFormPassword] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
@@ -86,12 +116,45 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       name: '',
       email: '',
       role: 'sales_rep',
+      customRoleName: '',
       title: 'Wholesale Field Sales Rep',
       password: 'User@2026',
       phone: '+94 77 ',
+      customPermissions: { ...ROLE_PERMISSIONS.sales_rep },
     });
+    setIsCustomizePermissionsOpen(false);
     setErrorMsg('');
     setIsAddModalOpen(true);
+  };
+
+  const handleRoleChangeInAdd = (newRole: UserRole) => {
+    const defaultPerms = ROLE_PERMISSIONS[newRole] || ROLE_PERMISSIONS.sales_rep;
+    const defaultTitles: Record<string, string> = {
+      admin: 'Managing Director / Super Admin',
+      manager: 'Branch & Operations Manager',
+      inventory_manager: 'Warehouse & Packet Inventory Lead',
+      sales_rep: 'Wholesale Field Sales Rep',
+      cashier: 'Cashier & Counter Sales',
+      warehouse: 'Warehouse & Dispatch Operator',
+      accountant: 'Financial Controller & Auditor',
+      custom: 'Custom Operations Specialist',
+    };
+    setFormData((prev) => ({
+      ...prev,
+      role: newRole,
+      title: defaultTitles[newRole] || prev.title,
+      customPermissions: { ...defaultPerms },
+    }));
+  };
+
+  const handleToggleAddPermission = (key: keyof RolePermissions) => {
+    setFormData((prev) => ({
+      ...prev,
+      customPermissions: {
+        ...prev.customPermissions,
+        [key]: !prev.customPermissions[key],
+      },
+    }));
   };
 
   const handleCreateUserSubmit = (e: React.FormEvent) => {
@@ -111,14 +174,47 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       name: formData.name.trim(),
       email: formData.email.trim(),
       role: formData.role,
+      customRoleName: formData.role === 'custom' ? (formData.customRoleName.trim() || 'Custom Role') : undefined,
       title: formData.title.trim() || `${formData.role.replace('_', ' ')} specialist`,
       password: formData.password.trim() || 'User@2026',
       phone: formData.phone.trim(),
       createdAt: new Date().toISOString().slice(0, 10),
+      customPermissions: { ...formData.customPermissions },
     };
 
     onAddUser(newUser);
     setIsAddModalOpen(false);
+  };
+
+  const handleOpenEditUser = (user: UserProfile) => {
+    const userPerms = user.customPermissions || ROLE_PERMISSIONS[user.role] || ROLE_PERMISSIONS.sales_rep;
+    setEditingUser({
+      ...user,
+      customPermissions: { ...userPerms },
+    });
+    setIsEditCustomizePermissionsOpen(Boolean(user.customPermissions));
+  };
+
+  const handleRoleChangeInEdit = (newRole: UserRole) => {
+    if (!editingUser) return;
+    const defaultPerms = ROLE_PERMISSIONS[newRole] || ROLE_PERMISSIONS.sales_rep;
+    setEditingUser({
+      ...editingUser,
+      role: newRole,
+      customPermissions: { ...defaultPerms },
+    });
+  };
+
+  const handleToggleEditPermission = (key: keyof RolePermissions) => {
+    if (!editingUser) return;
+    const currentPerms = editingUser.customPermissions || ROLE_PERMISSIONS[editingUser.role] || ROLE_PERMISSIONS.sales_rep;
+    setEditingUser({
+      ...editingUser,
+      customPermissions: {
+        ...currentPerms,
+        [key]: !currentPerms[key],
+      },
+    });
   };
 
   const handleEditUserSubmit = (e: React.FormEvent) => {

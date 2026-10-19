@@ -39,8 +39,20 @@ export const MongoDBSyncModal: React.FC<MongoDBSyncModalProps> = ({
   onWipeAndReseedComplete,
 }) => {
   const [activeTab, setActiveTab] = useState<'status' | 'sync' | 'schema' | 'cli'>('sync');
-  const [mongoUriInput, setMongoUriInput] = useState('');
-  const [dbNameInput, setDbNameInput] = useState('saffron_bark_spice_erp');
+  const [mongoUriInput, setMongoUriInput] = useState(() => {
+    try {
+      return localStorage.getItem('na_dist_mongo_uri') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [dbNameInput, setDbNameInput] = useState(() => {
+    try {
+      return localStorage.getItem('na_dist_mongo_db') || 'na_distributors_erp';
+    } catch {
+      return 'na_distributors_erp';
+    }
+  });
   const [isTesting, setIsTesting] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -118,6 +130,12 @@ export const MongoDBSyncModal: React.FC<MongoDBSyncModalProps> = ({
       });
       const data = await res.json();
       if (data.success) {
+        try {
+          localStorage.setItem('na_dist_mongo_uri', mongoUriInput);
+          localStorage.setItem('na_dist_mongo_db', dbNameInput);
+        } catch {
+          // ignore
+        }
         setTestResult({
           success: true,
           message: data.message,
@@ -125,7 +143,7 @@ export const MongoDBSyncModal: React.FC<MongoDBSyncModalProps> = ({
         });
         setSyncFeedback({
           type: 'success',
-          message: `Active backend is now connected to MongoDB database '${data.database}'!`,
+          message: `Active backend is now connected to MongoDB database '${data.database}'! Real-time auto-sync is active.`,
         });
         fetchHealth();
       } else {

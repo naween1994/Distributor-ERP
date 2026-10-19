@@ -79,6 +79,10 @@ export interface Customer {
   paymentTerms: PaymentTermsType;
   notes: string;
   createdAt: string;
+  latitude?: number;
+  longitude?: number;
+  mapLocationName?: string;
+  googleMapsUrl?: string;
 }
 
 export interface OrderItem {
@@ -151,18 +155,20 @@ export interface EmailAlertLog {
   preview: string;
 }
 
-export type UserRole = 'admin' | 'inventory_manager' | 'sales_rep' | 'accountant';
+export type UserRole = 'admin' | 'manager' | 'inventory_manager' | 'sales_rep' | 'accountant' | 'cashier' | 'warehouse' | 'custom' | string;
 
 export interface UserProfile {
   id: string;
   name: string;
   email: string;
   role: UserRole;
+  customRoleName?: string;
   title: string;
   avatarUrl?: string;
   password?: string;
   phone?: string;
   createdAt?: string;
+  customPermissions?: RolePermissions;
 }
 
 export interface RolePermissions {

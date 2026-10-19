@@ -52,18 +52,8 @@ export const StorageService = {
       const data = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
       if (!data) return INITIAL_PRODUCTS;
       const parsed: Product[] = JSON.parse(data);
-      // Synchronize exact batchCost and costPrice with initial definitions to guarantee cent precision
-      return parsed.map((p) => {
-        const init = INITIAL_PRODUCTS.find((ip) => ip.id === p.id);
-        if (init) {
-          return {
-            ...p,
-            batchCost: init.batchCost,
-            costPrice: init.costPrice,
-          };
-        }
-        return p;
-      });
+      if (!Array.isArray(parsed) || parsed.length === 0) return INITIAL_PRODUCTS;
+      return parsed;
     } catch {
       return INITIAL_PRODUCTS;
     }

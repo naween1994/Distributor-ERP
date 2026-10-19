@@ -123,7 +123,15 @@ export const DecimalUtils = {
 
     if (stock === 0) return 0;
 
+    // If unit cost is provided and batch cost exists, check if batch matches unit cost
     if (batch > 0 && initStock > 0) {
+      const derivedUnit = batch / initStock;
+      // If user edited costPrice and it diverged from batch/initStock (by more than 1 cent),
+      // honor the user's updated costPrice!
+      if (unitCost > 0 && Math.abs(derivedUnit - unitCost) > 0.02) {
+        return DecimalUtils.multiply(stock, unitCost);
+      }
+
       if (stock === initStock) {
         // Return exact manufacturer invoice batch cost without any rounding error
         return DecimalUtils.round(batch);

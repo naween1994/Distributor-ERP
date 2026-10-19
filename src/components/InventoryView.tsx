@@ -109,6 +109,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const handleOpenAdd = () => {
     setSelectedProduct(null);
     const randCode = '89010020' + Math.floor(1000 + Math.random() * 9000);
+    const defaultCost = 130.0;
+    const defaultStock = 200;
     setFormData({
       sku: `SPX-${Math.floor(100 + Math.random() * 900)}`,
       barcode: randCode,
@@ -118,10 +120,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       grade: 'Export Grade',
       unit: '100g',
       skuSize: '100g',
-      initialStock: 200,
-      currentStock: 200,
+      initialStock: defaultStock,
+      currentStock: defaultStock,
       reorderThreshold: 40,
-      costPrice: 130.0,
+      costPrice: defaultCost,
+      batchCost: DecimalUtils.multiply(defaultStock, defaultCost),
       retailPrice: 180.0,
       wholesalePrice: 144.0,
       distributorPrice: 141.5,
@@ -138,7 +141,18 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   const handleOpenEdit = (product: Product) => {
     setSelectedProduct(product);
-    setFormData({ ...product });
+    const stock = Number(product.initialStock || product.currentStock) || 0;
+    const computedLotVal = DecimalUtils.calculateLotValue(
+      product.initialStock || product.currentStock,
+      product.initialStock,
+      product.batchCost,
+      product.costPrice
+    );
+
+    setFormData({
+      ...product,
+      batchCost: computedLotVal > 0 ? computedLotVal : DecimalUtils.multiply(stock, product.costPrice || 0),
+    });
     setIsEditModalOpen(true);
   };
 
@@ -179,11 +193,35 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     e.preventDefault();
     if (!formData.name || !formData.sku) return;
 
+    const cost = DecimalUtils.round(Number(formData.costPrice) || 0);
+    const retail = DecimalUtils.round(Number(formData.retailPrice) || 0);
+    const wholesale = DecimalUtils.round(Number(formData.wholesalePrice) || 0);
+    const distributor = DecimalUtils.round(Number(formData.distributorPrice) || 0);
+    const initStock = Number(formData.initialStock) || 0;
+    const currStock = Number(formData.currentStock) || 0;
+
+    // Preserve exact batchCost cents if provided, without rounding drift
+    let effectiveBatchCost = Number(formData.batchCost) || 0;
+    if (effectiveBatchCost <= 0) {
+      effectiveBatchCost = DecimalUtils.multiply(initStock || currStock, cost);
+    } else if (initStock > 0 && cost > 0) {
+      const derivedUnit = effectiveBatchCost / initStock;
+      // Only recalculate batchCost if the cost was intentionally changed to a new price (> 2 cents difference)
+      if (Math.abs(derivedUnit - cost) > 0.02) {
+        effectiveBatchCost = DecimalUtils.multiply(initStock, cost);
+      }
+    }
+
     if (selectedProduct) {
       // Update
       onUpdateProduct({
         ...selectedProduct,
         ...(formData as Product),
+        costPrice: cost,
+        retailPrice: retail,
+        wholesalePrice: wholesale,
+        distributorPrice: distributor,
+        batchCost: DecimalUtils.round(effectiveBatchCost),
       });
     } else {
       // Create
@@ -198,17 +236,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         origin: formData.origin || 'Sri Lanka',
         grade: formData.grade || 'Standard Grade',
         unit: (formData.unit as SpiceUnit) || '100g',
-        initialStock: Number(formData.initialStock) || 0,
-        currentStock: Number(formData.currentStock) || 0,
+        initialStock: initStock,
+        currentStock: currStock,
         reorderThreshold: Number(formData.reorderThreshold) || 20,
-        costPrice: Number(formData.costPrice) || 0,
-        retailPrice: Number(formData.retailPrice) || 0,
-        wholesalePrice: Number(formData.wholesalePrice) || 0,
-        distributorPrice: Number(formData.distributorPrice) || 0,
+        costPrice: cost,
+        retailPrice: retail,
+        wholesalePrice: wholesale,
+        distributorPrice: distributor,
         retailerMarginPct: formData.retailerMarginPct,
         dealerCommission: formData.dealerCommission,
         distributorMarginPct: formData.distributorMarginPct,
-        batchCost: formData.batchCost,
+        batchCost: effectiveBatchCost,
         batchNumber: formData.batchNumber || `LOT-${Date.now()}`,
         harvestDate: formData.harvestDate || new Date().toISOString().slice(0, 10),
         description: formData.description || '',
@@ -446,11 +484,26 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       {permissions.canViewCostPrices && (
                         <td className="py-3 px-4 text-right font-mono font-medium text-slate-700 tabular-nums">
                           <div className="font-semibold text-slate-900">{DecimalUtils.formatLKR(p.costPrice)}</div>
-                          {p.batchCost && p.initialStock && (
-                            <div className="text-[10px] text-slate-400 font-normal">
-                              Lot: {DecimalUtils.formatLKR(p.batchCost)}
-                            </div>
-                          )}
+                          {(() => {
+                            const lotVal = DecimalUtils.calculateLotValue(
+                              p.currentStock,
+                              p.initialStock,
+                              p.batchCost,
+                              p.costPrice
+                            );
+                            return lotVal > 0 ? (
+                              <div
+                                className="text-[10px] text-slate-500 font-mono"
+                                title={`Lot valuation (${p.currentStock}/${p.initialStock} ${p.unit}): ${DecimalUtils.formatLKR(lotVal)}`}
+                              >
+                                Lot: {DecimalUtils.formatLKR(lotVal)}
+                              </div>
+                            ) : (
+                              <div className="text-[10px] text-slate-400 font-normal">
+                                per {p.unit}
+                              </div>
+                            );
+                          })()}
                         </td>
                       )}
 
@@ -467,7 +520,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
                       {/* Valuation */}
                       <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 tabular-nums">
-                        {DecimalUtils.formatLKR(lotValuation)}
+                        <div className="text-slate-900">{DecimalUtils.formatLKR(lotValuation)}</div>
+                        <div className="text-[10px] font-mono">
+                          {p.currentStock === p.initialStock ? (
+                            <span className="text-emerald-700 font-medium">Exact Batch Value</span>
+                          ) : (
+                            <span className="text-slate-400 font-normal">{p.currentStock} {p.unit} in stock</span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Actions */}
@@ -658,7 +718,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       type="number"
                       step="1"
                       value={formData.initialStock ?? ''}
-                      onChange={(e) => setFormData({ ...formData, initialStock: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) => {
+                        const newInit = parseFloat(e.target.value) || 0;
+                        setFormData((prev) => ({
+                          ...prev,
+                          initialStock: newInit,
+                          batchCost: prev.costPrice ? DecimalUtils.multiply(newInit, prev.costPrice) : prev.batchCost,
+                        }));
+                      }}
                       className="w-full text-xs px-3 py-1.5 bg-white border border-slate-200 rounded font-mono text-slate-900"
                     />
                   </div>
@@ -708,8 +775,21 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       type="number"
                       step="0.01"
                       value={formData.costPrice ?? ''}
-                      onChange={(e) => setFormData({ ...formData, costPrice: parseFloat(e.target.value) || 0 })}
-                      placeholder="e.g. 128.70"
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        const stock = Number(formData.initialStock || formData.currentStock) || 0;
+                        setFormData((prev) => {
+                          const currentDerived = (stock > 0 && prev.batchCost) ? (prev.batchCost / stock) : 0;
+                          // If entered value is within 0.02 of current derived unit cost, retain exact manufacturer batchCost
+                          const keepExactBatch = Boolean(prev.batchCost && Math.abs(currentDerived - val) <= 0.02);
+                          return {
+                            ...prev,
+                            costPrice: val,
+                            batchCost: keepExactBatch ? prev.batchCost : (stock > 0 ? DecimalUtils.multiply(stock, val) : prev.batchCost),
+                          };
+                        });
+                      }}
+                      placeholder="e.g. 128.84"
                       className="w-full text-xs px-3 py-1.5 bg-white border border-slate-200 rounded font-mono text-slate-900"
                     />
                   </div>
@@ -745,6 +825,44 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       placeholder="e.g. 141.57"
                       className="w-full text-xs px-3 py-1.5 bg-white border border-slate-200 rounded font-mono text-slate-900 text-emerald-800 font-semibold"
                     />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                  <div>
+                    <label className="block text-xs text-slate-700 mb-1 font-semibold">
+                      Total LOT / Batch Valuation (LKR)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formData.batchCost ?? ''}
+                      onChange={(e) => {
+                        const newBatch = parseFloat(e.target.value) || 0;
+                        const stock = Number(formData.initialStock || formData.currentStock) || 0;
+                        setFormData((prev) => ({
+                          ...prev,
+                          batchCost: newBatch,
+                          costPrice: stock > 0 ? DecimalUtils.round(newBatch / stock) : prev.costPrice,
+                        }));
+                      }}
+                      placeholder="e.g. 32208.75"
+                      className="w-full text-xs px-3 py-1.5 bg-white border border-slate-200 rounded font-mono text-slate-900"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      Exact manufacturer invoice value for {formData.initialStock || formData.currentStock || 0} packets @ {DecimalUtils.formatLKR(formData.costPrice || 0)}
+                    </p>
+                  </div>
+                  <div className="flex items-center text-xs text-slate-600 bg-white p-2.5 rounded border border-slate-200">
+                    <div>
+                      <div className="font-semibold text-slate-800">Precision Verification</div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">
+                        Unit Cost: <span className="font-mono font-bold text-slate-900">{DecimalUtils.formatLKR(formData.costPrice || 0)}</span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">
+                        Full Lot Value: <span className="font-mono font-bold text-amber-900">{DecimalUtils.formatLKR(formData.batchCost || DecimalUtils.multiply(formData.currentStock || 0, formData.costPrice || 0))}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
