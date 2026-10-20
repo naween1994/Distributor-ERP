@@ -33,7 +33,9 @@ import { PaymentReminderModal } from './components/PaymentReminderModal';
 import { BarcodeScannerModal, ScannerMode } from './components/BarcodeScannerModal';
 import { EmailAlertModal } from './components/EmailAlertModal';
 import { MongoDBSyncModal } from './components/MongoDBSyncModal';
-import { ApiService, ServerHealth } from './services/apiService';
+import { MobileAppModal } from './components/MobileAppModal';
+import { MobileBottomNav } from './components/MobileBottomNav';
+import { ApiService, ServerHealth, apiUrl } from './services/apiService';
 import { 
   Scan, 
   CheckCircle2, 
@@ -43,7 +45,8 @@ import {
   RotateCcw, 
   ExternalLink,
   Database,
-  ShieldCheck
+  ShieldCheck,
+  Smartphone
 } from 'lucide-react';
 
 export default function App() {
@@ -83,6 +86,7 @@ export default function App() {
   const [isMongoModalOpen, setIsMongoModalOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
+  const [isMobileModalOpen, setIsMobileModalOpen] = useState(false);
 
   // Real-time Toast Banner
   const [toastMessage, setToastMessage] = useState<{ title: string; text: string; type: 'success' | 'warning' | 'info' } | null>(null);
@@ -103,9 +107,9 @@ export default function App() {
         if (health.isMongoConnected) {
           try {
             const [pRes, cRes, oRes] = await Promise.all([
-              fetch('/api/products').then((r) => (r.ok ? r.json() : null)),
-              fetch('/api/customers').then((r) => (r.ok ? r.json() : null)),
-              fetch('/api/orders').then((r) => (r.ok ? r.json() : null)),
+              fetch(apiUrl('/api/products')).then((r) => (r.ok ? r.json() : null)),
+              fetch(apiUrl('/api/customers')).then((r) => (r.ok ? r.json() : null)),
+              fetch(apiUrl('/api/orders')).then((r) => (r.ok ? r.json() : null)),
             ]);
             if (Array.isArray(pRes) && pRes.length > 0) setProducts(pRes);
             if (Array.isArray(cRes) && cRes.length > 0) setCustomers(cRes);
@@ -428,7 +432,7 @@ export default function App() {
     setPricingTiers(updatedTiers);
     StorageService.savePricingTiers(updatedTiers);
     try {
-      await fetch('/api/settings/pricing-tiers', {
+      await fetch(apiUrl('/api/settings/pricing-tiers'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedTiers),
@@ -443,7 +447,7 @@ export default function App() {
     setPaymentTerms(updatedTerms);
     StorageService.savePaymentTerms(updatedTerms);
     try {
-      await fetch('/api/settings/payment-terms', {
+      await fetch(apiUrl('/api/settings/payment-terms'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedTerms),
@@ -598,7 +602,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col text-slate-900 selection:bg-amber-100 selection:text-amber-900">
+    <div className="min-h-screen bg-slate-50 flex flex-col text-slate-900 selection:bg-amber-100 selection:text-amber-900 pb-20 md:pb-0">
       {/* Real-time Toast Banner */}
       {toastMessage && (
         <div className="fixed bottom-5 right-5 z-50 max-w-sm bg-slate-900 text-white p-4 rounded-xl shadow-2xl border border-slate-700 flex items-start gap-3 transition-all animate-in fade-in slide-in-from-bottom-3 duration-200">
@@ -630,6 +634,7 @@ export default function App() {
         unreadCount={unreadCount}
         onOpenNotifications={() => setIsNotificationsOpen(true)}
         onOpenNewOrder={() => setIsCreateOrderOpen(true)}
+        onOpenMobileAppModal={() => setIsMobileModalOpen(true)}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
         onOpenChangePasswordModal={() => setIsChangePasswordModalOpen(true)}
         onSignOut={handleSignOut}
@@ -649,6 +654,15 @@ export default function App() {
             >
               <Scan className="w-3.5 h-3.5 text-amber-800" />
               <span>Scan Barcode / QR Code</span>
+            </button>
+
+            <button
+              onClick={() => setIsMobileModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-semibold rounded-lg border border-emerald-300 transition-colors shadow-2xs"
+              title="Mobile App PWA & Android APK Build Hub"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-emerald-700" />
+              <span>Mobile App / APK</span>
             </button>
 
             {activeUser.role === 'admin' && (
@@ -941,6 +955,24 @@ export default function App() {
         onClose={() => setIsChangePasswordModalOpen(false)}
         activeUser={activeUser}
         onPasswordChanged={handlePasswordChanged}
+      />
+
+      {/* Mobile App PWA & Android APK Modal */}
+      <MobileAppModal
+        isOpen={isMobileModalOpen}
+        onClose={() => setIsMobileModalOpen(false)}
+        serverHealth={serverHealth}
+      />
+
+      {/* Floating Bottom Navigation for Mobile Phones & Tablets */}
+      <MobileBottomNav
+        currentTab={currentTab}
+        setCurrentTab={setCurrentTab}
+        onOpenScanner={() => {
+          setScannerMode('scan_stock');
+          setIsScannerOpen(true);
+        }}
+        onOpenMobileModal={() => setIsMobileModalOpen(true)}
       />
 
       {/* Minimalistic, Anti-Slop Footer */}

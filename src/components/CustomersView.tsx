@@ -27,7 +27,14 @@ import {
 import { ExportService } from '../services/exportService';
 import { AdminDeleteConfirmModal } from './AdminDeleteConfirmModal';
 
-export const SRI_LANKA_MAP_PRESETS = [
+export interface MapPreset {
+  name: string;
+  lat: number;
+  lng: number;
+  region: string;
+}
+
+export const SRI_LANKA_MAP_PRESETS: MapPreset[] = [
   // { name: 'Pettah Wholesale Market (Colombo 11)', lat: 6.9372, lng: 79.8562, region: 'Western' },
   // { name: 'Kandy Central (Dalada Veediya)', lat: 7.2906, lng: 80.6337, region: 'Central' },
   // { name: 'Galle Fort Heritage Grocers', lat: 6.0329, lng: 80.2170, region: 'Southern' },
@@ -1200,39 +1207,41 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
 
             <div className="p-6 space-y-5">
               {/* Quick Sri Lankan Distribution Hub Presets */}
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-2">
-                  Select Sri Lanka Commercial Hub Preset:
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {SRI_LANKA_MAP_PRESETS.map((preset) => {
-                    const isSelected = Math.abs(mapCoords.lat - preset.lat) < 0.001 && Math.abs(mapCoords.lng - preset.lng) < 0.001;
-                    return (
-                      <button
-                        key={preset.name}
-                        type="button"
-                        onClick={() => {
-                          setMapCoords({
-                            lat: preset.lat,
-                            lng: preset.lng,
-                            name: preset.name,
-                          });
-                        }}
-                        className={`text-left p-2 rounded-lg border text-xs transition-all ${
-                          isSelected
-                            ? 'bg-emerald-50 border-emerald-500 text-emerald-950 font-bold shadow-2xs'
-                            : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        <div className="font-semibold truncate">{preset.name.split(' (')[0]}</div>
-                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                          {preset.lat.toFixed(4)}, {preset.lng.toFixed(4)}
-                        </div>
-                      </button>
-                    );
-                  })}
+              {SRI_LANKA_MAP_PRESETS.length > 0 && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-2">
+                    Select Sri Lanka Commercial Hub Preset:
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {SRI_LANKA_MAP_PRESETS.map((preset) => {
+                      const isSelected = Math.abs(mapCoords.lat - preset.lat) < 0.001 && Math.abs(mapCoords.lng - preset.lng) < 0.001;
+                      return (
+                        <button
+                          key={preset.name}
+                          type="button"
+                          onClick={() => {
+                            setMapCoords({
+                              lat: preset.lat,
+                              lng: preset.lng,
+                              name: preset.name,
+                            });
+                          }}
+                          className={`text-left p-2 rounded-lg border text-xs transition-all ${
+                            isSelected
+                              ? 'bg-emerald-50 border-emerald-500 text-emerald-950 font-bold shadow-2xs'
+                              : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          <div className="font-semibold truncate">{preset.name.split(' (')[0]}</div>
+                          <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                            {preset.lat.toFixed(4)}, {preset.lng.toFixed(4)}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Map Preview Embed */}
               <div className="space-y-2">

@@ -142,6 +142,17 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
+  // CORS middleware for mobile APK, Capacitor Android & Cross-Device Access
+  app.use((req: Request, res: Response, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   // -------------------------------------------------------------
   // REST API Routes
   // -------------------------------------------------------------

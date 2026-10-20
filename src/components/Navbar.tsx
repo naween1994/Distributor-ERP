@@ -14,7 +14,8 @@ import {
   KeyRound,
   LogIn,
   LogOut,
-  UserCheck
+  UserCheck,
+  Smartphone
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -26,6 +27,7 @@ interface NavbarProps {
   unreadCount: number;
   onOpenNotifications: () => void;
   onOpenNewOrder: () => void;
+  onOpenMobileAppModal?: () => void;
   onOpenLoginModal?: () => void;
   onOpenChangePasswordModal?: () => void;
   onSignOut?: () => void;
@@ -40,6 +42,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   unreadCount,
   onOpenNotifications,
   onOpenNewOrder,
+  onOpenMobileAppModal,
   onOpenLoginModal,
   onOpenChangePasswordModal,
   onSignOut,
@@ -175,6 +178,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Action Buttons & Notification */}
         <div className="flex items-center gap-2.5 shrink-0">
+          {onOpenMobileAppModal && (
+            <button
+              onClick={onOpenMobileAppModal}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 transition-colors shadow-2xs"
+              title="Mobile App PWA & Android APK Build Hub"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-emerald-700" />
+              <span className="hidden sm:inline">Mobile App / APK</span>
+            </button>
+          )}
+
           {/* Notification Button */}
           <button
             onClick={onOpenNotifications}

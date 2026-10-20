@@ -1,5 +1,33 @@
 import { Product, Customer, Order, PaymentStatus, UserProfile, PricingTier, PaymentTerm } from '../types';
 
+export const LIVE_BACKEND_URL = 'https://ais-pre-zytzhpqjsifz3trjxpvlcz-536828219465.asia-northeast1.run.app';
+
+export function getBackendBaseUrl(): string {
+  if (typeof window === 'undefined') return '';
+  const origin = window.location.origin;
+
+  // If running in development or directly on the web cloud app
+  if (origin.includes('.run.app') || origin.includes('localhost:3000') || origin.includes('localhost:5173')) {
+    return '';
+  }
+
+  // Check if user set a custom backend URL in storage
+  const customUrl = localStorage.getItem('na_dist_backend_url');
+  if (customUrl) return customUrl.replace(/\/$/, '');
+
+  // If running in Capacitor Android Native App (capacitor://localhost or file:// or localhost without port 3000)
+  if (origin.includes('capacitor://') || origin.startsWith('file:') || origin === 'null') {
+    return LIVE_BACKEND_URL;
+  }
+
+  return '';
+}
+
+export function apiUrl(path: string): string {
+  const base = getBackendBaseUrl();
+  return base ? `${base}${path}` : path;
+}
+
 export interface ServerHealth {
   status: string;
   server: string;
@@ -17,12 +45,12 @@ export interface ServerHealth {
 /**
  * ApiService
  * Handles seamless real-time synchronization between the React client and the Express backend / MongoDB Atlas.
- * When MongoDB is connected, all creates, updates, stock adjustments, and deletes persist immediately to MongoDB.
+ * When running in web or in mobile Android APK, seamlessly connects to the same cloud backend and database.
  */
 export const ApiService = {
   async getHealth(): Promise<ServerHealth | null> {
     try {
-      const res = await fetch('/api/health');
+      const res = await fetch(apiUrl('/api/health'));
       if (res.ok) return await res.json();
       return null;
     } catch {
@@ -32,7 +60,7 @@ export const ApiService = {
 
   async createProduct(product: Product): Promise<void> {
     try {
-      await fetch('/api/products', {
+      await fetch(apiUrl('/api/products'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(product),
@@ -44,7 +72,7 @@ export const ApiService = {
 
   async updateProduct(product: Product): Promise<void> {
     try {
-      await fetch(`/api/products/${encodeURIComponent(product.id)}`, {
+      await fetch(apiUrl(`/api/products/${encodeURIComponent(product.id)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(product),
@@ -56,7 +84,7 @@ export const ApiService = {
 
   async adjustStock(productId: string, delta: number, note: string): Promise<void> {
     try {
-      await fetch(`/api/products/${encodeURIComponent(productId)}/adjust-stock`, {
+      await fetch(apiUrl(`/api/products/${encodeURIComponent(productId)}/adjust-stock`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ delta, note }),
@@ -68,7 +96,7 @@ export const ApiService = {
 
   async deleteProduct(productId: string): Promise<void> {
     try {
-      await fetch(`/api/products/${encodeURIComponent(productId)}`, {
+      await fetch(apiUrl(`/api/products/${encodeURIComponent(productId)}`), {
         method: 'DELETE',
       });
     } catch (err) {
@@ -78,7 +106,7 @@ export const ApiService = {
 
   async createCustomer(customer: Customer): Promise<void> {
     try {
-      await fetch('/api/customers', {
+      await fetch(apiUrl('/api/customers'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(customer),
@@ -90,7 +118,7 @@ export const ApiService = {
 
   async updateCustomer(customer: Customer): Promise<void> {
     try {
-      await fetch(`/api/customers/${encodeURIComponent(customer.id)}`, {
+      await fetch(apiUrl(`/api/customers/${encodeURIComponent(customer.id)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(customer),
@@ -102,7 +130,7 @@ export const ApiService = {
 
   async deleteCustomer(customerId: string): Promise<void> {
     try {
-      await fetch(`/api/customers/${encodeURIComponent(customerId)}`, {
+      await fetch(apiUrl(`/api/customers/${encodeURIComponent(customerId)}`), {
         method: 'DELETE',
       });
     } catch (err) {
@@ -112,7 +140,7 @@ export const ApiService = {
 
   async createOrder(order: Order): Promise<void> {
     try {
-      await fetch('/api/orders', {
+      await fetch(apiUrl('/api/orders'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(order),
@@ -124,7 +152,7 @@ export const ApiService = {
 
   async updatePaymentStatus(orderId: string, paymentStatus: PaymentStatus, paidAmount: number): Promise<void> {
     try {
-      await fetch(`/api/orders/${encodeURIComponent(orderId)}/payment`, {
+      await fetch(apiUrl(`/api/orders/${encodeURIComponent(orderId)}/payment`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentStatus, paidAmount }),
@@ -136,7 +164,7 @@ export const ApiService = {
 
   async deleteOrder(orderId: string): Promise<void> {
     try {
-      await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
+      await fetch(apiUrl(`/api/orders/${encodeURIComponent(orderId)}`), {
         method: 'DELETE',
       });
     } catch (err) {
@@ -146,7 +174,7 @@ export const ApiService = {
 
   async createUser(user: UserProfile): Promise<void> {
     try {
-      await fetch('/api/users', {
+      await fetch(apiUrl('/api/users'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(user),
@@ -158,7 +186,7 @@ export const ApiService = {
 
   async updateUser(user: UserProfile): Promise<void> {
     try {
-      await fetch(`/api/users/${encodeURIComponent(user.id)}`, {
+      await fetch(apiUrl(`/api/users/${encodeURIComponent(user.id)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(user),
@@ -170,7 +198,7 @@ export const ApiService = {
 
   async deleteUser(userId: string): Promise<void> {
     try {
-      await fetch(`/api/users/${encodeURIComponent(userId)}`, {
+      await fetch(apiUrl(`/api/users/${encodeURIComponent(userId)}`), {
         method: 'DELETE',
       });
     } catch (err) {
@@ -180,7 +208,7 @@ export const ApiService = {
 
   async updatePricingTiers(tiers: PricingTier[]): Promise<void> {
     try {
-      await fetch('/api/settings/pricing-tiers', {
+      await fetch(apiUrl('/api/settings/pricing-tiers'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(tiers),
@@ -192,7 +220,7 @@ export const ApiService = {
 
   async updatePaymentTerms(terms: PaymentTerm[]): Promise<void> {
     try {
-      await fetch('/api/settings/payment-terms', {
+      await fetch(apiUrl('/api/settings/payment-terms'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(terms),
@@ -204,7 +232,7 @@ export const ApiService = {
 
   async updateAdminDeletePassword(password: string): Promise<void> {
     try {
-      await fetch('/api/settings/delete-password', {
+      await fetch(apiUrl('/api/settings/delete-password'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
@@ -216,7 +244,7 @@ export const ApiService = {
 
   async wipeCustomersAndOrders(password: string): Promise<boolean> {
     try {
-      const res = await fetch('/api/settings/wipe-customers-and-orders', {
+      const res = await fetch(apiUrl('/api/settings/wipe-customers-and-orders'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
@@ -232,7 +260,7 @@ export const ApiService = {
     action: 'push' | 'wipe_and_push',
     data: { products?: Product[]; customers?: Customer[]; orders?: Order[] }
   ): Promise<any> {
-    const res = await fetch('/api/mongodb/sync', {
+    const res = await fetch(apiUrl('/api/mongodb/sync'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, ...data }),

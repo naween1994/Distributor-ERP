@@ -1,0 +1,22 @@
+{
+	"appId": "com.nadistributors.spicerp",
+	"appName": "NA Distributors Spice ERP",
+	"webDir": "dist",
+	"server": {
+		"url": "https://ais-pre-zytzhpqjsifz3trjxpvlcz-536828219465.asia-northeast1.run.app",
+		"cleartext": true
+	},
+	"android": {
+		"allowMixedContent": true,
+		"captureInput": true,
+		"webContentsDebuggingEnabled": true
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 2000,
+			"backgroundColor": "#78350f",
+			"showSpinner": true,
+			"spinnerColor": "#fbbf24"
+		}
+	}
+}
